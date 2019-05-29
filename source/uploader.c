@@ -49,6 +49,19 @@ void socShutdown() {
 
 }
 
+const char* memmem(const char* haystack, size_t haystack_len, char* needle, size_t needle_len){
+	if (needle_len == 0)
+		return haystack;
+	while (needle_len <= haystack_len)
+    {
+      if (!memcmp (haystack, needle, needle_len))
+        return haystack;
+      haystack++;
+      haystack_len--;
+    }
+  return NULL;
+}
+
 //---------------------------------------------------------------------------------
 int main(int argc, char **argv) {
 //---------------------------------------------------------------------------------
@@ -155,14 +168,14 @@ int main(int argc, char **argv) {
 				const char boundary_marker[] = "Content-Type: multipart/form-data; boundary=";
 				char boundary[128];
 				char* boundary_tmp = strstr(buffer, boundary_marker) + strlen(boundary_marker);
-				char* nextline_after_boundary = strchr(boundary_tmp, '\n');
+				char* nextline_after_boundary = strchr(boundary_tmp, '\r');
 				strncpy(boundary, boundary_tmp, nextline_after_boundary-boundary_tmp);
-				printf("Multipart boundary: %s", boundary);
+				printf("Multipart boundary: \n%s\n", boundary);
+
 
 				//look for line "filename=...."
 				//TODO read the name later, assume upload.3dsx
 				char name[] = "upload.3dsx";
-				char filebuf[8000];			
 				printf("attempting to create output file...\n");
 				FILE *outfile = fopen("3ds/upload.3dsx","wb");
 				if(outfile == NULL)
@@ -170,9 +183,6 @@ int main(int argc, char **argv) {
 					printf("Couldn't create output file!\n");
 					continue;
 				}
-
-				//try to read the file into end
-				//strcpy(filebuf, buffer);
 
 				//look for the file start:
 				//Content-Disposition: form-data; name="file";
@@ -188,21 +198,27 @@ int main(int argc, char **argv) {
 				fwrite(file_start, 1, ret-(file_start-buffer), outfile);
 
 				//read and write more segments
-				// do{
 				while(true){
 					ret = recv (csock, buffer, 1024, 0);
 					if(ret == 0)
 						break;
 					printf("read %d more bytes\n", ret);
-					fwrite(buffer, 1, ret, outfile);
+					//check again if the buffer ends in boundary
+					char* boundary_location = memmem(buffer, ret, boundary, strlen(boundary));
+					printf("boundary location:%p\n", boundary_location);
+					int bytes_to_write = boundary_location == 0 ? ret : (boundary_location-buffer);
+					printf("will write %d bytes\n", bytes_to_write);
+					fwrite(buffer, 1, bytes_to_write, outfile);
 					fflush(outfile); //TODO remove
 				}
-				// }
-				// while(ret > 0);
 				fclose(outfile);
 
 				printf("Reading complete\n");
 				send(csock, http_200, strlen(http_200),0);		
+				send(csock, http_html_hdr, strlen(http_html_hdr),0);
+				char* msg = "<html><body><h1>POSTed!</h1></body></html>";
+				send(csock, msg, strlen(msg), 0);
+				printf("wrote the response..\n");
 			}
 
 			printf("Closing the socket..\n");
