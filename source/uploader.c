@@ -28,13 +28,13 @@ void failExit(const char *fmt, ...);
 const static char http_200[] = "HTTP/1.1 200 OK\r\n";
 
 const static char indexdata[] = "<html> <head><body> \
-                               <form method=\"POST\" action=\".\" enctype=\"multipart/form-data\">\
-                                       file name: <input name=\"filename\"/><br/>\
-                                        file: <input type=\"file\" value=\"file\">\
-                                        <input type=\"submit\">\
-                                   </form> \           
-                               </body> \
-                               </html>";
+	<form method=\"POST\" action=\".\" enctype=\"multipart/form-data\">\
+			file name: <input name=\"filename\"/><br/>\
+			file: <input type=\"file\" name=\"file\">\
+			<input type=\"submit\">\
+		</form> \           
+	</body> \
+	</html>";
 
 const static char http_html_hdr[] = "Content-type: text/html\r\n\r\n";
 const static char http_get_index[] = "GET / HTTP/1.1\r\n";
@@ -58,7 +58,6 @@ int main(int argc, char **argv) {
 	struct sockaddr_in client;
 	struct sockaddr_in server;
 	char buffer[1026];
-	static int hits=0;
 
 	gfxInitDefault();
 
@@ -133,15 +132,12 @@ int main(int argc, char **argv) {
 			memset (buffer, 0, 1026);
 
 			ret = recv (csock, buffer, 1024, 0);
-			printf("Received:\n");
-			printf(buffer);
 			//GET handler
 			if ( !strncmp( buffer, http_get_index, strlen(http_get_index) ) ) {
-				hits++;
 
 				send(csock, http_200, strlen(http_200),0);
 				send(csock, http_html_hdr, strlen(http_html_hdr),0);
-				sprintf(buffer, indexdata, hits);
+				sprintf(buffer, indexdata);
 				send(csock, buffer, strlen(buffer),0);
 			}
 			//POST handler
@@ -151,51 +147,67 @@ int main(int argc, char **argv) {
 				printf("opening output file\n");
 				FILE *request = fopen("output.bin","wb");
 				if (request == NULL)
-					return;
+					continue;
 				printf("attempting to write\n");
 				fwrite(buffer, 1, strlen(buffer), request);
 				fclose(request);
+				//find the multipart boundary
+				const char boundary_marker[] = "Content-Type: multipart/form-data; boundary=";
+				char boundary[128];
+				char* boundary_tmp = strstr(buffer, boundary_marker) + strlen(boundary_marker);
+				char* nextline_after_boundary = strchr(boundary_tmp, '\n');
+				strncpy(boundary, boundary_tmp, nextline_after_boundary-boundary_tmp);
+				printf("Multipart boundary: %s", boundary);
 
 				//look for line "filename=...."
 				//TODO read the name later, assume upload.3dsx
 				char name[] = "upload.3dsx";
 				char filebuf[8000];			
-
-				FILE *outfile = fopen("3ds\\upload.3dsx","wb");
+				printf("attempting to create output file...\n");
+				FILE *outfile = fopen("3ds/upload.3dsx","wb");
 				if(outfile == NULL)
 				{
 					printf("Couldn't create output file!\n");
-					return;
+					continue;
 				}
 
 				//try to read the file into end
-				strcpy(filebuf, buffer);
+				//strcpy(filebuf, buffer);
 
-				//read more segments
-				ret = recv (csock, buffer, 1024, 0);
-				printf("ret=%d strlen(buffer)=%d", ret, strlen(buffer));
-				fwrite(buffer, 1, strlen(buffer), request);
+				//look for the file start:
+				//Content-Disposition: form-data; name="file";
+				static char file_start_marker[] = "Content-Disposition: form-data; name=\"file\";";
+				//need to find two newlines from there
+				char* file_start = strstr(buffer, file_start_marker);
+				//advance three newlines
+				for(int i = 0; i < 3; i++) {
+					file_start = strchr(file_start, '\n')+1;
+				}
 
+				//write the first part of the multipart we have				
+				fwrite(file_start, 1, ret-(file_start-buffer), outfile);
+
+				//read and write more segments
+				// do{
+				while(true){
+					ret = recv (csock, buffer, 1024, 0);
+					if(ret == 0)
+						break;
+					printf("read %d more bytes\n", ret);
+					fwrite(buffer, 1, ret, outfile);
+					fflush(outfile); //TODO remove
+				}
+				// }
+				// while(ret > 0);
 				fclose(outfile);
 
-				// char* filename_key = "filename=";
-				// char* filename = strstr(buffer, filename_key);
-				// char filename_buffer[128];
-				// filename+=strlen(filename_key);
-				// //find the newline after
-				// printf("---\n");
-				// printf(filename);
-				// printf("---");  
-				// char* trailingSpace = strchr(filename,'\n'); 
-				// printf(trailingSpace);
-				// strncpy(filename_buffer, filename, trailingSpace-filename);
-				// printf("filename: ");
-				// printf(filename_buffer);
+				printf("Reading complete\n");
+				send(csock, http_200, strlen(http_200),0);		
 			}
 
+			printf("Closing the socket..\n");
 			close (csock);
 			csock = -1;
-
 		}
 
 		u32 kDown = hidKeysDown();
