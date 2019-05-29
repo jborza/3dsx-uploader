@@ -156,8 +156,9 @@ int main(int argc, char **argv) {
 			}
 			//POST handler
 			if(!strncmp(buffer, http_post_index, strlen(http_post_index)))
-			{
+			{				
 				printf("checked for POST\n");
+
 				printf("opening output file\n");
 				FILE *request = fopen("output.bin","wb");
 				if (request == NULL)
@@ -203,6 +204,7 @@ int main(int argc, char **argv) {
 				//write the first part of the multipart we have				
 				fwrite(file_start, 1, ret-(file_start-buffer), outfile);
 
+				//TODO count received body bytes up to Content-Length
 				//read and write more segments
 				while(true){
 					ret = recv (csock, buffer, 1024, 0);
@@ -220,10 +222,12 @@ int main(int argc, char **argv) {
 				fclose(outfile);
 
 				printf("Reading complete\n");
+
 				send(csock, http_200, strlen(http_200),0);		
 				send(csock, http_html_hdr, strlen(http_html_hdr),0);
-				char* msg = "<html><body><h1>POSTed!</h1></body></html>";
-				send(csock, msg, strlen(msg), 0);
+				char ok[] = "File saved.";
+				send(csock, ok, strlen(ok),0);
+				
 				printf("wrote the response..\n");
 			}
 
