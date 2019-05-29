@@ -49,6 +49,7 @@ void socShutdown() {
 
 }
 
+//TODO it would be better to scan backwards as the end boundary is usually near the end of the request
 const char* memmem(const char* haystack, size_t haystack_len, char* needle, size_t needle_len){
 	if (needle_len == 0)
 		return haystack;
@@ -166,12 +167,17 @@ int main(int argc, char **argv) {
 				fclose(request);
 				//find the multipart boundary
 				const char boundary_marker[] = "Content-Type: multipart/form-data; boundary=";
-				char boundary[128];
+				char boundary[128] = "--";
 				char* boundary_tmp = strstr(buffer, boundary_marker) + strlen(boundary_marker);
 				char* nextline_after_boundary = strchr(boundary_tmp, '\r');
-				strncpy(boundary, boundary_tmp, nextline_after_boundary-boundary_tmp);
+				//final boundary needs prepending and appending two dashes
+				strncpy(boundary+2, boundary_tmp, nextline_after_boundary-boundary_tmp);
+				//appending
+				int boundary_length = strlen(boundary);
+				boundary[boundary_length] = '-';
+				boundary[boundary_length+1] = '-';
+				boundary[boundary_length+2] = 0;
 				printf("Multipart boundary: \n%s\n", boundary);
-
 
 				//look for line "filename=...."
 				//TODO read the name later, assume upload.3dsx
@@ -191,7 +197,7 @@ int main(int argc, char **argv) {
 				char* file_start = strstr(buffer, file_start_marker);
 				//advance three newlines
 				for(int i = 0; i < 3; i++) {
-					file_start = strchr(file_start, '\n')+1;
+					file_start = strchr(file_start, '\n') + 1;
 				}
 
 				//write the first part of the multipart we have				
@@ -202,14 +208,14 @@ int main(int argc, char **argv) {
 					ret = recv (csock, buffer, 1024, 0);
 					if(ret == 0)
 						break;
-					printf("read %d more bytes\n", ret);
+					printf("read %d bytes ", ret);
 					//check again if the buffer ends in boundary
 					char* boundary_location = memmem(buffer, ret, boundary, strlen(boundary));
-					printf("boundary location:%p\n", boundary_location);
-					int bytes_to_write = boundary_location == 0 ? ret : (boundary_location-buffer);
+					printf("boundary @:%p\n", boundary_location);
+					//subtract 2 due to previous \r\n
+					int bytes_to_write = boundary_location == 0 ? ret : (boundary_location-buffer-2);
 					printf("will write %d bytes\n", bytes_to_write);
 					fwrite(buffer, 1, bytes_to_write, outfile);
-					fflush(outfile); //TODO remove
 				}
 				fclose(outfile);
 
