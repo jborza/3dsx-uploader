@@ -149,27 +149,48 @@ int main(int argc, char **argv) {
 			{
 				printf("checked for POST\n");
 				printf("opening output file\n");
-				FILE *file = fopen("output.bin","wb");
-				if (file == NULL)
+				FILE *request = fopen("output.bin","wb");
+				if (request == NULL)
 					return;
 				printf("attempting to write\n");
-				fwrite(buffer, 1, strlen(buffer), file);
-				fclose(file);
+				fwrite(buffer, 1, strlen(buffer), request);
+				fclose(request);
 
 				//look for line "filename=...."
-				char* filename_key = "filename=";
-				char* filename = strstr(buffer, filename_key);
-				char filename_buffer[128];
-				filename+=strlen(filename_key);
-				//find the newline after
-				printf("---\n");
-				printf(filename);
-				printf("---");  
-				char* trailingSpace = strchr(filename,'\n'); 
-				printf(trailingSpace);
-				strncpy(filename_buffer, filename, trailingSpace-filename);
-				printf("filename: ");
-				printf(filename_buffer);
+				//TODO read the name later, assume upload.3dsx
+				char name[] = "upload.3dsx";
+				char filebuf[8000];			
+
+				FILE *outfile = fopen("3ds\\upload.3dsx","wb");
+				if(outfile == NULL)
+				{
+					printf("Couldn't create output file!\n");
+					return;
+				}
+
+				//try to read the file into end
+				strcpy(filebuf, buffer);
+
+				//read more segments
+				ret = recv (csock, buffer, 1024, 0);
+				printf("ret=%d strlen(buffer)=%d", ret, strlen(buffer));
+				fwrite(buffer, 1, strlen(buffer), request);
+
+				fclose(outfile);
+
+				// char* filename_key = "filename=";
+				// char* filename = strstr(buffer, filename_key);
+				// char filename_buffer[128];
+				// filename+=strlen(filename_key);
+				// //find the newline after
+				// printf("---\n");
+				// printf(filename);
+				// printf("---");  
+				// char* trailingSpace = strchr(filename,'\n'); 
+				// printf(trailingSpace);
+				// strncpy(filename_buffer, filename, trailingSpace-filename);
+				// printf("filename: ");
+				// printf(filename_buffer);
 			}
 
 			close (csock);
