@@ -63,6 +63,40 @@ const char* memmem(const char* haystack, size_t haystack_len, char* needle, size
   return NULL;
 }
 
+int find_line(char* dst, const char* haystack, char* line_beginning) {
+	char* line = strstr(haystack, line_beginning);
+	if (line == NULL)
+		return -1;
+	char* following_linebreak = strchr(line, '\r');
+	if (following_linebreak == NULL)
+	{
+		//TODO special case where it's at the end of the file
+		return -1;
+	}
+	int length = following_linebreak - line;
+	strncpy(dst, line, length);
+	*(dst+length) = '\0';
+	return length;
+}
+
+int get_header_int_value(const char* headers, const char* header_prefix) {
+	char header_line_buffer[256];
+	int found = find_line(header_line_buffer, headers, header_prefix);
+	if (found <= 0)
+		return found;
+	int int_value = atoi(header_line_buffer + strlen(header_prefix));
+	return int_value;
+}
+
+int get_header_char_value(const char* headers, const char* header_prefix, char* destination, size_t destination_size) {
+	char header_line_buffer[256];
+	int found = find_line(header_line_buffer, headers, header_prefix);
+	if (found <= 0)
+		return found;
+	strcpy(destination, header_line_buffer + strlen(header_prefix));
+	return strlen(destination);
+}
+
 //---------------------------------------------------------------------------------
 int main(int argc, char **argv) {
 //---------------------------------------------------------------------------------
@@ -142,7 +176,7 @@ int main(int argc, char **argv) {
 		} else {
 			// set client socket to blocking to simplify sending data back
 			fcntl(csock, F_SETFL, fcntl(csock, F_GETFL, 0) & ~O_NONBLOCK);
-			printf("Connecting port %d from %s\n", client.sin_port, inet_ntoa(client.sin_addr));
+			//printf("Connecting port %d from %s\n", client.sin_port, inet_ntoa(client.sin_addr));
 			memset (buffer, 0, 1026);
 
 			ret = recv (csock, buffer, 1024, 0);
@@ -179,6 +213,17 @@ int main(int argc, char **argv) {
 				boundary[boundary_length+1] = '-';
 				boundary[boundary_length+2] = 0;
 				printf("Multipart boundary: \n%s\n", boundary);
+
+				get_header_char_value(buffer, boundary_marker, boundary, 125);
+				printf("Boundary from function: \n%s\n", boundary);
+
+				//look for content-length
+				//Content-Length: xxxx
+				int content_length = get_header_int_value(buffer, "Content-Length:");
+				// char buffer_content_length[256];
+				// int found = find_line(buffer_content_length, buffer, "Content-Length:");
+				printf("Content length:%d\n",content_length);
+				//printf(buffer_content_length);
 
 				//look for line "filename=...."
 				//TODO read the name later, assume upload.3dsx
@@ -231,7 +276,7 @@ int main(int argc, char **argv) {
 				printf("wrote the response..\n");
 			}
 
-			printf("Closing the socket..\n");
+			//printf("Closing the socket..\n");
 			close (csock);
 			csock = -1;
 		}
