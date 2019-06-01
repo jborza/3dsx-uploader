@@ -3,6 +3,7 @@ const static char http_201[] = "HTTP/1.1 201 Created\r\n";
 const static char http_404[] = "HTTP/1.0 404 Not Found\r\n\r\n404 Not Found\r\n";
 
 const static char indexdata[] = "<html> <head><body> \
+    <a href=\"/list\">File listing & download</a><br/>\
 	<form method=\"POST\" action=\".\" enctype=\"multipart/form-data\">\
 			file: <input type=\"file\" name=\"file\">\
 			<input type=\"submit\">\
