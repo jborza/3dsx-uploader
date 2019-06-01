@@ -26,6 +26,7 @@ __attribute__((format(printf,1,2)))
 void failExit(const char *fmt, ...);
 
 const static char http_200[] = "HTTP/1.1 200 OK\r\n";
+const static char http_201[] = "HTTP/1.1 201 Created\r\n";
 
 const static char indexdata[] = "<html> <head><body> \
 	<form method=\"POST\" action=\".\" enctype=\"multipart/form-data\">\
@@ -95,6 +96,14 @@ int get_header_char_value(const char* headers, const char* header_prefix, char* 
 		return found;
 	strcpy(destination, header_line_buffer + strlen(header_prefix));
 	return strlen(destination);
+}
+
+void get_file_name(const char* headers, char* destination)
+{
+	char filename_prefix[] = "Content-Disposition: form-data; name=\"file\"; filename=\"";
+	get_header_char_value(headers,filename_prefix,destination,256);
+	//get rid of the trailing quote
+	destination[strlen(destination)-1] = '\0';
 }
 
 //---------------------------------------------------------------------------------
@@ -178,8 +187,8 @@ int main(int argc, char **argv) {
 			fcntl(csock, F_SETFL, fcntl(csock, F_GETFL, 0) & ~O_NONBLOCK);
 			//printf("Connecting port %d from %s\n", client.sin_port, inet_ntoa(client.sin_addr));
 			memset (buffer, 0, 1026);
-
-			ret = recv (csock, buffer, 1024, 0);
+			const int DEFAULT_READ_SIZE = 1024;
+			ret = recv (csock, buffer, DEFAULT_READ_SIZE, 0);
 			//GET handler
 			if ( !strncmp( buffer, http_get_index, strlen(http_get_index) ) ) {
 
@@ -202,77 +211,74 @@ int main(int argc, char **argv) {
 				fclose(request);
 				//find the multipart boundary
 				const char boundary_marker[] = "Content-Type: multipart/form-data; boundary=";
-				char boundary[128] = "--";
-				char* boundary_tmp = strstr(buffer, boundary_marker) + strlen(boundary_marker);
-				char* nextline_after_boundary = strchr(boundary_tmp, '\r');
-				//final boundary needs prepending and appending two dashes
-				strncpy(boundary+2, boundary_tmp, nextline_after_boundary-boundary_tmp);
-				//appending
-				int boundary_length = strlen(boundary);
-				boundary[boundary_length] = '-';
-				boundary[boundary_length+1] = '-';
-				boundary[boundary_length+2] = 0;
-				printf("Multipart boundary: \n%s\n", boundary);
 
-				get_header_char_value(buffer, boundary_marker, boundary, 125);
-				printf("Boundary from function: \n%s\n", boundary);
-
-				//look for content-length
-				//Content-Length: xxxx
-				int content_length = get_header_int_value(buffer, "Content-Length:");
-				// char buffer_content_length[256];
-				// int found = find_line(buffer_content_length, buffer, "Content-Length:");
+				const int content_length = get_header_int_value(buffer, "Content-Length:");			
 				printf("Content length:%d\n",content_length);
-				//printf(buffer_content_length);
 
+				int content_bytes_read = 0;
+
+				char filename[256];
+				get_file_name(buffer, filename);
+				printf("Filename:%s",filename);
 				//look for line "filename=...."
 				//TODO read the name later, assume upload.3dsx
-				char name[] = "upload.3dsx";
-				printf("attempting to create output file...\n");
-				FILE *outfile = fopen("3ds/upload.3dsx","wb");
+				char destination_filename[256] = "";
+				strcat(destination_filename, filename);
+				// printf("attempting to create output file...\n");
+				FILE *outfile = fopen(destination_filename,"wb");
 				if(outfile == NULL)
 				{
 					printf("Couldn't create output file!\n");
 					continue;
 				}
 
-				//look for the file start:
-				//Content-Disposition: form-data; name="file";
-				static char file_start_marker[] = "Content-Disposition: form-data; name=\"file\";";
-				//need to find two newlines from there
-				char* file_start = strstr(buffer, file_start_marker);
-				//advance three newlines
-				for(int i = 0; i < 3; i++) {
-					file_start = strchr(file_start, '\n') + 1;
-				}
+				//check where the content starts:
+				char boundary_regular[128] = "--";
+				get_header_char_value(buffer, boundary_marker, boundary_regular+2, 125);
+				printf("Regular boundary: \n%s\n", boundary_regular);
+
+				char boundary_final[130];
+				strcpy(boundary_final, boundary_regular);
+				strcat(boundary_final, "--"); //last boundary ends with two extra dashes
+				printf("Final boundary: \n%s\n", boundary_final);
+				
+				char* content_start = strstr(buffer,boundary_regular);
+				content_start -= 2; // CRLF
+				int content_start_offset = content_start - buffer;
+				printf("found first boundary at %d\n", content_start_offset);
+				content_bytes_read += ret - content_start_offset;
 
 				//write the first part of the multipart we have				
-				fwrite(file_start, 1, ret-(file_start-buffer), outfile);
-
+				fwrite(file_start, 1, ret-(file_start-buffer), outfile);				
+				printf("content_bytes_read: %d\n", content_bytes_read);
 				//TODO count received body bytes up to Content-Length
 				//read and write more segments
 				while(true){
-					ret = recv (csock, buffer, 1024, 0);
+					int bytes_remaining = content_length - content_bytes_read;
+					printf("remaining: %d ",bytes_remaining);
+					int bytes_to_read = bytes_remaining >= DEFAULT_READ_SIZE ? 
+						DEFAULT_READ_SIZE : bytes_remaining;
+					ret = recv (csock, buffer, bytes_to_read, 0);
+					content_bytes_read += ret;
+					printf("content_bytes_read: %d\n", content_bytes_read);
 					if(ret == 0)
 						break;
-					printf("read %d bytes ", ret);
+					printf("read: %d ", ret);
 					//check again if the buffer ends in boundary
-					char* boundary_location = memmem(buffer, ret, boundary, strlen(boundary));
-					printf("boundary @:%p\n", boundary_location);
-					//subtract 2 due to previous \r\n
+					char* boundary_location = memmem(buffer, ret, boundary_final, strlen(boundary_final));
+					printf("bound @:%p\n", boundary_location);
+					//subtract 2 due to previous CRLF
 					int bytes_to_write = boundary_location == 0 ? ret : (boundary_location-buffer-2);
-					printf("will write %d bytes\n", bytes_to_write);
+					printf("will write %d\n", bytes_to_write);
 					fwrite(buffer, 1, bytes_to_write, outfile);
 				}
 				fclose(outfile);
 
 				printf("Reading complete\n");
 
-				send(csock, http_200, strlen(http_200),0);		
-				send(csock, http_html_hdr, strlen(http_html_hdr),0);
-				char ok[] = "File saved.";
-				send(csock, ok, strlen(ok),0);
-				
+				send(csock, http_201, strlen(http_201),0);
+				char headers_rest[] = "Content-Type: text/plain\r\nContent-Length:0\r\nConnection: Close\r\n";
+				send(csock, headers_rest, strlen(headers_rest),0);
 				printf("wrote the response..\n");
 			}
 
