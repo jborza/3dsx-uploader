@@ -16,6 +16,12 @@
 
 #include <3ds.h>
 
+#if DEBUG
+#define debug_print(...) printf(__VA_ARGS__)
+#else
+#define debug_print(...) 
+#endif
+
 #define SOC_ALIGN 0x1000
 #define SOC_BUFFERSIZE 0x100000
 
@@ -123,11 +129,11 @@ void get_boundary(const char *headers, char *boundary_regular, char *boundary_fi
 
 void dump_request(char *buffer)
 {
-	printf("opening request.bin file\n");
+	debug_print("opening request.bin file\n");
 	FILE *request = fopen("request.bin", "wb");
 	if (request == NULL)
 		return;
-	printf("attempting to write data\n");
+	debug_print("attempting to write data\n");
 	fwrite(buffer, 1, strlen(buffer), request);
 	fclose(request);
 }
@@ -139,32 +145,31 @@ void handle_post(char* buffer, int ret)
 	//find the multipart boundary
 
 	const int content_length = get_header_int_value(buffer, "Content-Length:");
-	printf("Content length:%d\n", content_length);
+	debug_print("Content length:%d\n", content_length);
 
 	int content_bytes_read = 0;
 
 	char filename[256];
 	get_file_name(buffer, filename);
-	printf("Filename:%s", filename);
+	debug_print("Filename:%s", filename);
 	char destination_filename[256] = "";
 	strcat(destination_filename, filename);
-	// printf("attempting to create output file...\n");
 	FILE *outfile = fopen(destination_filename, "wb");
 	if (outfile == NULL)
 	{
-		printf("Couldn't create the output file!\n");
+		printf("Couldn't create the output file %s!\n", destination_filename);
 		return;
 	}
 
 	//check where the content starts:
 	get_boundary(buffer, boundary_regular, boundary_final);
-	printf("Regular boundary: \n%s\n", boundary_regular);
-	printf("Final boundary: \n%s\n", boundary_final);
+	debug_print("Regular boundary: \n%s\n", boundary_regular);
+	debug_print("Final boundary: \n%s\n", boundary_final);
 
 	char *content_start = strstr(buffer, boundary_regular);
 	content_start -= 2; // CRLF
 	int content_start_offset = content_start - buffer;
-	printf("found content start at offset %d\n", content_start_offset);
+	debug_print("Found content start at offset %d\n", content_start_offset);
 	content_bytes_read += ret - content_start_offset;
 
 	static char file_start_marker[] = "Content-Disposition: form-data; name=\"file\";";
@@ -178,7 +183,7 @@ void handle_post(char* buffer, int ret)
 
 	//write the first part of the multipart we have
 	fwrite(file_start, 1, ret - (file_start - buffer), outfile);
-	printf("content_bytes_read: %d\n", content_bytes_read);
+	debug_print("content_bytes_read: %d\n", content_bytes_read);
 	while (true)
 	{
 		int bytes_remaining = content_length - content_bytes_read;
@@ -186,26 +191,24 @@ void handle_post(char* buffer, int ret)
 		int bytes_to_read = bytes_remaining >= DEFAULT_READ_SIZE ? DEFAULT_READ_SIZE : bytes_remaining;
 		ret = recv(csock, buffer, bytes_to_read, 0);
 		content_bytes_read += ret;
-		printf("content_bytes_read: %d\n", content_bytes_read);
+		debug_print("Left:%d read total:%d read:%d", bytes_remaining, content_bytes_read, ret);
 		if (ret == 0)
 			break;
-		printf("read: %d ", ret);
 		//check again if the buffer ends in boundary
 		char *boundary_location = memmem(buffer, ret, boundary_final, strlen(boundary_final));
 		printf("bound @:%p\n", boundary_location);
 		//subtract 2 due to previous CRLF
 		int bytes_to_write = boundary_location == 0 ? ret : (boundary_location - buffer - 2);
 		size_t written = fwrite(buffer, 1, bytes_to_write, outfile);
-		printf("to write %d written %d\n", bytes_to_write, written);
 	}
 	fclose(outfile);
 
-	printf("Reading complete\n");
+	printf("Upload done\n");
 
 	send(csock, http_201, strlen(http_201), 0);
 	char headers_rest[] = "Content-Type: text/plain\r\nContent-Length:0\r\nConnection: Close\r\n";
 	send(csock, headers_rest, strlen(headers_rest), 0);
-	printf("wrote the response..\n");
+	debug_print("Response written..\n");
 }
 
 //---------------------------------------------------------------------------------
