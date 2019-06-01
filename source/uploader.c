@@ -51,7 +51,7 @@ void socShutdown() {
 }
 
 //TODO it would be better to scan backwards as the end boundary is usually near the end of the request
-const char* memmem(const char* haystack, size_t haystack_len, char* needle, size_t needle_len){
+const char* memmem(const char* haystack, size_t haystack_len, const char* needle, size_t needle_len){
 	if (needle_len == 0)
 		return haystack;
 	while (needle_len <= haystack_len)
@@ -64,7 +64,7 @@ const char* memmem(const char* haystack, size_t haystack_len, char* needle, size
   return NULL;
 }
 
-int find_line(char* dst, const char* haystack, char* line_beginning) {
+int find_line(char* dst, const char* haystack, const char* line_beginning) {
 	char* line = strstr(haystack, line_beginning);
 	if (line == NULL)
 		return -1;
@@ -106,6 +106,24 @@ void get_file_name(const char* headers, char* destination)
 	destination[strlen(destination)-1] = '\0';
 }
 
+void get_boundary(const char* headers, char* boundary_regular, char* boundary_final){
+	const char boundary_marker[] = "Content-Type: multipart/form-data; boundary=";
+	strcpy(boundary_regular, "--"); //initialize with the boundary prefix
+	get_header_char_value(headers, boundary_marker, boundary_regular+2, 125);
+	strcpy(boundary_final, boundary_regular);
+	strcat(boundary_final, "--"); //last boundary ends with two extra dashes				
+}
+
+void dump_request(char* buffer){
+	printf("opening request.bin file\n");
+	FILE *request = fopen("request.bin","wb");
+	if (request == NULL)
+		return;
+	printf("attempting to write data\n");
+	fwrite(buffer, 1, strlen(buffer), request);
+	fclose(request);
+}
+
 //---------------------------------------------------------------------------------
 int main(int argc, char **argv) {
 //---------------------------------------------------------------------------------
@@ -115,6 +133,8 @@ int main(int argc, char **argv) {
 	struct sockaddr_in client;
 	struct sockaddr_in server;
 	char buffer[1026];
+	char boundary_regular[128];
+	char boundary_final[130];
 
 	gfxInitDefault();
 
@@ -200,17 +220,8 @@ int main(int argc, char **argv) {
 			//POST handler
 			if(!strncmp(buffer, http_post_index, strlen(http_post_index)))
 			{				
-				printf("checked for POST\n");
-
-				printf("opening output file\n");
-				FILE *request = fopen("output.bin","wb");
-				if (request == NULL)
-					continue;
-				printf("attempting to write\n");
-				fwrite(buffer, 1, strlen(buffer), request);
-				fclose(request);
+				printf("checked for POST\n");				
 				//find the multipart boundary
-				const char boundary_marker[] = "Content-Type: multipart/form-data; boundary=";
 
 				const int content_length = get_header_int_value(buffer, "Content-Length:");			
 				printf("Content length:%d\n",content_length);
@@ -220,8 +231,6 @@ int main(int argc, char **argv) {
 				char filename[256];
 				get_file_name(buffer, filename);
 				printf("Filename:%s",filename);
-				//look for line "filename=...."
-				//TODO read the name later, assume upload.3dsx
 				char destination_filename[256] = "";
 				strcat(destination_filename, filename);
 				// printf("attempting to create output file...\n");
@@ -233,26 +242,27 @@ int main(int argc, char **argv) {
 				}
 
 				//check where the content starts:
-				char boundary_regular[128] = "--";
-				get_header_char_value(buffer, boundary_marker, boundary_regular+2, 125);
+				get_boundary(buffer, boundary_regular, boundary_final);
 				printf("Regular boundary: \n%s\n", boundary_regular);
-
-				char boundary_final[130];
-				strcpy(boundary_final, boundary_regular);
-				strcat(boundary_final, "--"); //last boundary ends with two extra dashes
 				printf("Final boundary: \n%s\n", boundary_final);
 				
-				char* content_start = strstr(buffer,boundary_regular);
+				char* content_start = strstr(buffer, boundary_regular);
 				content_start -= 2; // CRLF
 				int content_start_offset = content_start - buffer;
-				printf("found first boundary at %d\n", content_start_offset);
+				printf("found content start at offset %d\n", content_start_offset);
 				content_bytes_read += ret - content_start_offset;
+
+				static char file_start_marker[] = "Content-Disposition: form-data; name=\"file\";";
+				//need to find two newlines from there
+				char* file_start = strstr(buffer, file_start_marker);
+				//advance three newlines
+				for(int i = 0; i < 3; i++) {
+					file_start = strchr(file_start, '\n') + 1;
+				}
 
 				//write the first part of the multipart we have				
 				fwrite(file_start, 1, ret-(file_start-buffer), outfile);				
 				printf("content_bytes_read: %d\n", content_bytes_read);
-				//TODO count received body bytes up to Content-Length
-				//read and write more segments
 				while(true){
 					int bytes_remaining = content_length - content_bytes_read;
 					printf("remaining: %d ",bytes_remaining);
@@ -269,8 +279,8 @@ int main(int argc, char **argv) {
 					printf("bound @:%p\n", boundary_location);
 					//subtract 2 due to previous CRLF
 					int bytes_to_write = boundary_location == 0 ? ret : (boundary_location-buffer-2);
-					printf("will write %d\n", bytes_to_write);
-					fwrite(buffer, 1, bytes_to_write, outfile);
+					size_t written = fwrite(buffer, 1, bytes_to_write, outfile);
+					printf("to write %d written %d\n", bytes_to_write,written);
 				}
 				fclose(outfile);
 
@@ -282,7 +292,6 @@ int main(int argc, char **argv) {
 				printf("wrote the response..\n");
 			}
 
-			//printf("Closing the socket..\n");
 			close (csock);
 			csock = -1;
 		}
