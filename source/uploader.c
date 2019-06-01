@@ -141,7 +141,7 @@ void handle_get(char *buffer)
     send(csock, buffer, strlen(buffer), 0);
 }
 
-void send_client(char *buffer)
+void send_client(const char *buffer)
 {
     send(csock, buffer, strlen(buffer), 0);
 }
@@ -150,13 +150,13 @@ void handle_get_list(char *buffer)
 {
     const static char html_listing_start[] = "<html> <head><body><ul>\n";
     const static char html_listing_end[] = "</ul></body></html>";
-    const static char html_listing_item_format[] = "<li><a href=\"%s\">%s</a></li>\n";
+    const static char html_listing_item_format[] = "<li><a href=\"file/%s\">%s</a></li>\n";
 
     send_client(http_200);
     send_client(http_html_hdr);
     send_client(html_listing_start);
 
-    char item_buffer[256];
+    char item_buffer[541];
 
     DIR *directory;
     struct dirent *entry;
@@ -171,6 +171,41 @@ void handle_get_list(char *buffer)
     }
 
     send_client(html_listing_end);
+}
+
+void get_http_requested_file(const char* buffer, char* destination){
+    get_header_char_value(buffer, http_get_file, destination, 256);
+    //we'll have the filename ending with HTTP/1.1
+    char* http_tag = strstr(destination, " HTTP/1.1");
+    strcpy(http_tag,"\0");
+}
+
+void handle_get_file(const char* buffer, int ret){    
+    //get filename from the request
+    char filename[256];
+    get_http_requested_file(buffer, filename);
+    FILE* file = fopen(filename, "rb");
+    printf("File requested:\n%s\n", filename);
+    if(file == NULL)
+    {
+        printf("404 Not Found\n");
+        send_client(http_404);
+        return; 
+    }
+    send_client(http_200);
+    send_client(http_octet_stream_hdr);
+    
+    char header_buffer[1024];
+    sprintf(header_buffer, http_content_attachment_format, filename);
+    send_client(header_buffer);
+
+    char file_buffer[1024];
+    size_t read;
+    while((read = fread(file_buffer, 1, sizeof(buffer), file)) > 0)
+    {
+        send(csock,file_buffer, read, 0);
+    }
+    while(read > 0);
 }
 
 void handle_post(char *buffer, int ret)
@@ -341,7 +376,7 @@ int main(int argc, char **argv)
             //printf("Connecting port %d from %s\n", client.sin_port, inet_ntoa(client.sin_addr));
             memset(buffer, 0, 1026);
             ret = recv(csock, buffer, DEFAULT_READ_SIZE, 0);
-            //GET handler
+            //GET handlers
             if (!strncmp(buffer, http_get_index, strlen(http_get_index)))
             {
                 handle_get(buffer);
@@ -349,6 +384,10 @@ int main(int argc, char **argv)
             if (!strncmp(buffer, http_get_list, strlen(http_get_list)))
             {
                 handle_get_list(buffer);
+            }
+            if (!strncmp(buffer, http_get_file, strlen(http_get_file)))
+            {
+                handle_get_file(buffer, ret);
             }
             //POST handler
             if (!strncmp(buffer, http_post_index, strlen(http_post_index)))
