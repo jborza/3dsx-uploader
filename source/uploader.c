@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include <fcntl.h>
 
@@ -33,8 +34,6 @@ static u32 *SOC_buffer = NULL;
 s32 sock = -1, csock = -1;
 
 __attribute__((format(printf, 1, 2))) void failExit(const char *fmt, ...);
-
-
 
 const int DEFAULT_READ_SIZE = 1024;
 
@@ -140,6 +139,38 @@ void handle_get(char *buffer)
     send(csock, http_html_hdr, strlen(http_html_hdr), 0);
     sprintf(buffer, indexdata);
     send(csock, buffer, strlen(buffer), 0);
+}
+
+void send_client(char *buffer)
+{
+    send(csock, buffer, strlen(buffer), 0);
+}
+
+void handle_get_list(char *buffer)
+{
+    const static char html_listing_start[] = "<html> <head><body><ul>\n";
+    const static char html_listing_end[] = "</ul></body></html>";
+    const static char html_listing_item_format[] = "<li><a href=\"%s\">%s</a></li>\n";
+
+    send_client(http_200);
+    send_client(http_html_hdr);
+    send_client(html_listing_start);
+
+    char item_buffer[256];
+
+    DIR *directory;
+    struct dirent *entry;
+    directory = opendir(".");
+    if (directory)
+    {
+        while ((entry = readdir(directory)) != NULL)
+        {
+            sprintf(item_buffer, html_listing_item_format, entry->d_name, entry->d_name);
+            send_client(item_buffer);
+        }
+    }
+
+    send_client(html_listing_end);
 }
 
 void handle_post(char *buffer, int ret)
@@ -314,6 +345,10 @@ int main(int argc, char **argv)
             if (!strncmp(buffer, http_get_index, strlen(http_get_index)))
             {
                 handle_get(buffer);
+            }
+            if (!strncmp(buffer, http_get_list, strlen(http_get_list)))
+            {
+                handle_get_list(buffer);
             }
             //POST handler
             if (!strncmp(buffer, http_post_index, strlen(http_post_index)))
