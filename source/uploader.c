@@ -141,8 +141,7 @@ void dump_request(char *buffer)
 void send_post_response()
 {
     send(csock, http_201, strlen(http_201), 0);
-    //\r\nLocation: /
-    char headers_rest[] = "Content-Type: text/plain\r\nContent-Length:0\r\nConnection: Close\r\n";
+    char headers_rest[] = "Content-Type: text/plain\r\nContent-Length:2\r\nConnection: Close\r\n\r\nOK";
     send(csock, headers_rest, strlen(headers_rest), 0);
     debug_print("Response written..\n");
 }
