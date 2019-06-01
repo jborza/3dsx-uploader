@@ -125,8 +125,6 @@ void get_boundary(const char *headers, char *boundary_regular, char *boundary_fi
 	strcat(boundary_final, "--"); //last boundary ends with two extra dashes
 }
 
-
-
 void dump_request(char *buffer)
 {
 	debug_print("opening request.bin file\n");
@@ -136,6 +134,13 @@ void dump_request(char *buffer)
 	debug_print("attempting to write data\n");
 	fwrite(buffer, 1, strlen(buffer), request);
 	fclose(request);
+}
+
+void send_post_response(){
+	send(csock, http_201, strlen(http_201), 0);
+	char headers_rest[] = "Content-Type: text/plain\r\nLocation: /\r\nContent-Length:0\r\nConnection: Close\r\n";
+	send(csock, headers_rest, strlen(headers_rest), 0);
+	debug_print("Response written..\n");
 }
 
 void handle_post(char* buffer, int ret)
@@ -187,16 +192,19 @@ void handle_post(char* buffer, int ret)
 	while (true)
 	{
 		int bytes_remaining = content_length - content_bytes_read;
-		printf("remaining: %d ", bytes_remaining);
-		int bytes_to_read = bytes_remaining >= DEFAULT_READ_SIZE ? DEFAULT_READ_SIZE : bytes_remaining;
+		bool last_chunk = bytes_remaining <= DEFAULT_READ_SIZE;		
+		// int bytes_to_read = bytes_remaining >= DEFAULT_READ_SIZE ? DEFAULT_READ_SIZE : bytes_remaining;
+		int bytes_to_read = last_chunk ? bytes_remaining :  DEFAULT_READ_SIZE;
 		ret = recv(csock, buffer, bytes_to_read, 0);
 		content_bytes_read += ret;
-		debug_print("Left:%d read total:%d read:%d", bytes_remaining, content_bytes_read, ret);
+		debug_print("Left:%d read total:%d read:%d\n", bytes_remaining, content_bytes_read, ret);
+		debug_print("Last chunk? %d\n",last_chunk);
 		if (ret == 0)
 			break;
 		//check again if the buffer ends in boundary
+		//necessary only in the last chunk				
 		char *boundary_location = memmem(buffer, ret, boundary_final, strlen(boundary_final));
-		printf("bound @:%p\n", boundary_location);
+		debug_print("bound @:%p\n", boundary_location);
 		//subtract 2 due to previous CRLF
 		int bytes_to_write = boundary_location == 0 ? ret : (boundary_location - buffer - 2);
 		size_t written = fwrite(buffer, 1, bytes_to_write, outfile);
