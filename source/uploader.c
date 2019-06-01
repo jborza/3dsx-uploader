@@ -147,6 +147,14 @@ void send_post_response()
     debug_print("Response written..\n");
 }
 
+void handle_get(char *buffer)
+{
+    send(csock, http_200, strlen(http_200), 0);
+    send(csock, http_html_hdr, strlen(http_html_hdr), 0);
+    sprintf(buffer, indexdata);
+    send(csock, buffer, strlen(buffer), 0);
+}
+
 void handle_post(char *buffer, int ret)
 {
     char boundary_regular[128];
@@ -201,7 +209,7 @@ void handle_post(char *buffer, int ret)
         int bytes_to_read = last_chunk ? bytes_remaining : DEFAULT_READ_SIZE;
         ret = recv(csock, buffer, bytes_to_read, 0);
         content_bytes_read += ret;
-        debug_print("Left:%d read total:%d read:%d last:%d\n", bytes_remaining, content_bytes_read, ret, last);
+        debug_print("Left:%d read total:%d read:%d last:%d\n", bytes_remaining, content_bytes_read, ret, last_chunk);
         if (ret == 0)
             break;
         //find the last multipart marker in the last chunk to know when to stop copying content
@@ -318,11 +326,7 @@ int main(int argc, char **argv)
             //GET handler
             if (!strncmp(buffer, http_get_index, strlen(http_get_index)))
             {
-
-                send(csock, http_200, strlen(http_200), 0);
-                send(csock, http_html_hdr, strlen(http_html_hdr), 0);
-                sprintf(buffer, indexdata);
-                send(csock, buffer, strlen(buffer), 0);
+                handle_get(buffer);
             }
             //POST handler
             if (!strncmp(buffer, http_post_index, strlen(http_post_index)))
