@@ -16,7 +16,9 @@
 
 #include <3ds.h>
 
-#if DEBUG
+#define DEBUG
+
+#ifdef DEBUG
 #define debug_print(...) printf(__VA_ARGS__)
 #else
 #define debug_print(...) 
@@ -138,7 +140,8 @@ void dump_request(char *buffer)
 
 void send_post_response(){
 	send(csock, http_201, strlen(http_201), 0);
-	char headers_rest[] = "Content-Type: text/plain\r\nLocation: /\r\nContent-Length:0\r\nConnection: Close\r\n";
+    //\r\nLocation: /
+	char headers_rest[] = "Content-Type: text/plain\r\nContent-Length:0\r\nConnection: Close\r\n";
 	send(csock, headers_rest, strlen(headers_rest), 0);
 	debug_print("Response written..\n");
 }
@@ -189,7 +192,7 @@ void handle_post(char* buffer, int ret)
 	//write the first part of the multipart we have
 	fwrite(file_start, 1, ret - (file_start - buffer), outfile);
 	debug_print("content_bytes_read: %d\n", content_bytes_read);
-	while (true)
+	while (content_length - content_bytes_read > 0)
 	{
 		int bytes_remaining = content_length - content_bytes_read;
 		bool last_chunk = bytes_remaining <= DEFAULT_READ_SIZE;		
@@ -201,22 +204,21 @@ void handle_post(char* buffer, int ret)
 		debug_print("Last chunk? %d\n",last_chunk);
 		if (ret == 0)
 			break;
-		//check again if the buffer ends in boundary
-		//necessary only in the last chunk				
-		char *boundary_location = memmem(buffer, ret, boundary_final, strlen(boundary_final));
-		debug_print("bound @:%p\n", boundary_location);
+        //find the last multipart marker in the last chunk to know when to stop copying content
+        int bytes_to_write = ret;
+        if(last_chunk){
+		    char *boundary_location = memmem(buffer, ret, boundary_final, strlen(boundary_final));
+    		debug_print("multipart boundary @:%d\n", boundary_location-buffer);
 		//subtract 2 due to previous CRLF
-		int bytes_to_write = boundary_location == 0 ? ret : (boundary_location - buffer - 2);
+            bytes_to_write = boundary_location == 0 ? ret : (boundary_location - buffer - 2);
+        }
 		size_t written = fwrite(buffer, 1, bytes_to_write, outfile);
 	}
 	fclose(outfile);
 
 	printf("Upload done\n");
 
-	send(csock, http_201, strlen(http_201), 0);
-	char headers_rest[] = "Content-Type: text/plain\r\nContent-Length:0\r\nConnection: Close\r\n";
-	send(csock, headers_rest, strlen(headers_rest), 0);
-	debug_print("Response written..\n");
+	send_post_response();
 }
 
 //---------------------------------------------------------------------------------
